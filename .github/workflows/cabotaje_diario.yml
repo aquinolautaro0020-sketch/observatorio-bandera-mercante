@@ -1,1 +1,36 @@
+name: Cabotaje diario (Global Fishing Watch)
 
+on:
+  schedule:
+    - cron: "41 9 * * *"   # 06:41 hora argentina
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: datos-observatorio
+  cancel-in-progress: false
+
+jobs:
+  cabotaje:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Calcular cabotaje de los últimos 60 días
+        run: python scripts/cabotaje_gfw.py
+        env:
+          GFW_TOKEN: ${{ secrets.GFW_TOKEN }}
+      - name: Publicar datos
+        run: |
+          git config user.name "observatorio-bot"
+          git config user.email "observatorio-bot@users.noreply.github.com"
+          git add data/cabotaje_reciente.json
+          git diff --cached --quiet || git commit -m "Cabotaje GFW $(date -u +%Y-%m-%d)"
+          git pull --rebase
+          git push
