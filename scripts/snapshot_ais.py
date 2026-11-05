@@ -41,7 +41,15 @@ async def escuchar(clave, segundos):
                 crudo = await asyncio.wait_for(ws.recv(), timeout=max(1, fin - time.time()))
             except asyncio.TimeoutError:
                 break
-            procesar(json.loads(crudo), buques)
+            except websockets.exceptions.ConnectionClosed as e:
+                if buques:
+                    break
+                sys.exit(f"aisstream cerró la conexión antes de enviar datos (código {e.code}: {e.reason or 'sin detalle'}). "
+                         "Revisá que el secreto AISSTREAM_KEY tenga la clave correcta.")
+            msg = json.loads(crudo)
+            if isinstance(msg, dict) and msg.get("error"):
+                sys.exit(f"aisstream rechazó la conexión: {msg['error']}. Revisá el secreto AISSTREAM_KEY.")
+            procesar(msg, buques)
     return buques
 
 
@@ -106,9 +114,14 @@ def guardar(resumen):
 def main():
     clave = os.environ.get("AISSTREAM_KEY", "").strip()
     if not clave:
-        sys.exit("Falta el secreto AISSTREAM_KEY.")
+        sys.exit("Falta el secreto AISSTREAM_KEY: crealo en Settings → Secrets and variables → Actions, con ese nombre exacto.")
     ahora = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    buques = asyncio.run(escuchar(clave, SEGUNDOS))
+    try:
+        buques = asyncio.run(escuchar(clave, SEGUNDOS))
+    except (OSError, asyncio.TimeoutError, websockets.exceptions.InvalidStatusCode, websockets.exceptions.InvalidHandshake) as e:
+        sys.exit(f"No se pudo conectar con aisstream.io ({type(e).__name__}: {e}). Si se repite, revisá la clave o el estado del servicio.")
+    if not buques:
+        print("Aviso: aisstream no envió ningún buque en la ventana de escucha; se guarda una foto vacía.")
     resumen = resumir(buques, ahora)
     guardar(resumen)
     print(json.dumps(resumen["totales"], ensure_ascii=False))
