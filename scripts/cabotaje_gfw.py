@@ -148,8 +148,25 @@ def main():
     print(json.dumps(salida["totales"], ensure_ascii=False))
 
 
+def estado(ok, detalle):
+    (RAIZ / "data").mkdir(exist_ok=True)
+    (RAIZ / "data" / "estado_cabotaje.json").write_text(json.dumps({
+        "ok": ok, "detalle": detalle, "fecha_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
+        ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 if __name__ == "__main__":
     try:
         main()
-    except RuntimeError as e:
-        sys.exit(f"Global Fishing Watch devolvió un error: {e}. Si dice 401, revisá el secreto GFW_TOKEN (copiá el token con el botón de copiar).")
+        estado(True, "Cálculo completo")
+    except SystemExit as e:
+        estado(False, str(e))
+        print(f"::error title=Cabotaje diario::{e}")
+        raise
+    except Exception as e:  # noqa: BLE001  se informa cualquier falla, con su tipo
+        msg = f"{type(e).__name__}: {e}"
+        if "401" in msg:
+            msg += " — revisá el secreto GFW_TOKEN (copiá el token con el botón de copiar)."
+        estado(False, msg)
+        print(f"::error title=Cabotaje diario::{msg}")
+        sys.exit(1)
