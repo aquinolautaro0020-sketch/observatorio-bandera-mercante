@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Observatorio de Bandera Mercante</title>
+<meta name="description" content="Buques por bandera en aguas argentinas, actualizado automáticamente: tráfico en vivo, foto horaria y cabotaje costero con bandera extranjera.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+  /* Carta náutica: fondo papel azulado, tinta marina, acento naranja de baliza para la bandera extranjera */
+  :root {
+    --bg: #f3f6f8; --panel: #ffffff; --ink: #14212b; --muted: #5a6a76; --line: #d5dee5;
+    --arg: #1f5f9e; --ext: #d9622b; --other: #9aa8b3; --grid: #e6ecf0;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e171d; --panel: #15222b; --ink: #e4ecf1; --muted: #93a4b0; --line: #26363f; --arg: #5ea3e6; --ext: #f08a55; --other: #5d6d78; --grid: #1e2c35; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 28px; }
+  header h1 { font: 600 clamp(1.7rem, 3.4vw, 2.4rem)/1.15 var(--serif); margin: 0 0 8px; text-wrap: balance; }
+  header p { margin: 0; max-width: 70ch; color: var(--muted); }
+  .lede { color: var(--ink) !important; font-size: 1.05rem; }
+  .flag-arg { color: var(--arg); font-weight: 600; } .flag-ext { color: var(--ext); font-weight: 600; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  h2 { font: 600 1.25rem/1.25 var(--serif); margin: 0; }
+  .note { margin: 0; font-size: .85rem; color: var(--muted); max-width: 80ch; }
+  .stamp { font: .78rem var(--mono); color: var(--muted); letter-spacing: .02em; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 12px; }
+  .tile { border-top: 3px solid var(--line); padding-top: 8px; }
+  .tile.arg { border-color: var(--arg); } .tile.ext { border-color: var(--ext); }
+  .tile .n { font: 400 2rem/1.1 var(--serif); font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 16px; align-items: start; }
+  .map { height: 520px; border-radius: 4px; border: 1px solid var(--line); }
+  .bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: .85rem; }
+  .bars li { display: grid; grid-template-columns: 9rem 1fr 2.5rem; gap: 8px; align-items: center; }
+  .bars .b { height: 10px; border-radius: 3px; background: var(--ext); }
+  .bars .b.arg { background: var(--arg); }
+  .bars .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .82rem; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .tablebox { max-height: 22rem; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+  td { border-bottom: 1px solid var(--grid); padding: 6px 8px; vertical-align: top; }
+  td.num, th.num { text-align: right; }
+  .chartbox { position: relative; height: 280px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); font-size: .9rem; border: 1px dashed var(--line); border-radius: 4px; }
+  .live { min-height: 420px; }
+  ol.method { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 6px; font-size: .9rem; max-width: 85ch; }
+  a { color: var(--arg); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--ext); outline-offset: 2px; }
+  .leaflet-container { background: var(--grid); font: 13px var(--sans); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Observatorio de Bandera Mercante</h1>
+    <p class="lede" id="lede">Cargando la última foto del tráfico en aguas argentinas…</p>
+    <p>Qué banderas mueven la carga en el litoral argentino y la Hidrovía, y cuánto cabotaje hacen los buques extranjeros. Se actualiza solo: la foto del tráfico cada hora y el cabotaje cada día.</p>
+  </header>
+
+  <section id="ahora">
+    <h2>Ahora en aguas argentinas</h2>
+    <p class="stamp" id="stamp-foto">—</p>
+    <div class="tiles">
+      <div class="tile"><div class="l">Buques con posición</div><div class="n" id="n-total">—</div></div>
+      <div class="tile"><div class="l">Mercantes (carga y tanque)</div><div class="n" id="n-merc">—</div></div>
+      <div class="tile arg"><div class="l">Mercantes de bandera argentina</div><div class="n" id="n-arg">—</div></div>
+      <div class="tile ext"><div class="l">Mercantes de bandera extranjera</div><div class="n" id="n-ext">—</div></div>
+    </div>
+    <div class="split">
+      <div>
+        <div class="legend"><span><i style="background:var(--arg)"></i>Mercante argentino</span><span><i style="background:var(--ext)"></i>Mercante extranjero</span><span><i style="background:var(--other)"></i>Otros buques</span></div>
+        <div id="map-ahora" class="map" role="region" aria-label="Mapa de buques en aguas argentinas"></div>
+      </div>
+      <div>
+        <h2 style="font-size:1.05rem">Mercantes por bandera en esta foto</h2>
+        <ul class="bars" id="bars-bandera"></ul>
+      </div>
+    </div>
+    <p class="note">Fuente: AIS terrestre en tiempo real vía aisstream.io, escuchado unos minutos cada hora. La bandera surge del código MID del MMSI. La cobertura depende de las antenas receptoras: el Paraná y la Patagonia austral pueden aparecer con menos buques de los reales.</p>
+  </section>
+
+  <section id="evolucion-horaria">
+    <h2>Mercantes presentes, foto a foto</h2>
+    <p class="note">Cada punto es una corrida horaria. La serie crece sola desde la puesta en marcha del observatorio.</p>
+    <div class="chartbox"><canvas id="chart-horas" aria-label="Mercantes argentinos y extranjeros por hora"></canvas></div>
+  </section>
+
+  <section id="cabotaje">
+    <h2>Cabotaje costero con bandera extranjera, últimos 60 días</h2>
+    <p class="stamp" id="stamp-gfw">—</p>
+    <div class="tiles">
+      <div class="tile ext"><div class="l">Buques extranjeros en la costa</div><div class="n" id="c-buques">—</div></div>
+      <div class="tile ext"><div class="l">Con operación recurrente (≥4 tramos)</div><div class="n" id="c-rec">—</div></div>
+      <div class="tile"><div class="l">Tramos costeros</div><div class="n" id="c-tramos">—</div></div>
+    </div>
+    <div class="split">
+      <div id="map-cabotaje" class="map" role="region" aria-label="Rutas costeras de buques extranjeros"></div>
+      <div class="tablebox">
+        <table><thead><tr><th>Buque</th><th>Bandera</th><th>MMSI</th><th class="num">Tramos</th></tr></thead><tbody id="tabla-cabotaje"></tbody></table>
+      </div>
+    </div>
+    <p class="note">Tramos entre dos puertos argentinos con un extremo en la Patagonia, sin escala intermedia en el exterior, de buques de bandera extranjera. Fuente: Global Fishing Watch (escalas en puerto, unas 72 horas de demora). No son waivers otorgados: incluyen buques con tratamiento de bandera nacional.</p>
+  </section>
+
+  <section id="serie">
+    <h2>La serie larga, 2012-2025</h2>
+    <p class="note">Flota de carga de bandera nacional frente a buques extranjeros con tramos costeros y con operación recurrente. Anexo 2 de la ponencia.</p>
+    <div class="chartbox"><canvas id="chart-serie" aria-label="Serie 2012-2025"></canvas></div>
+  </section>
+
+  <section id="vivo">
+    <h2>Tráfico en vivo</h2>
+    <p class="note">Mapa en tiempo real de VesselFinder (todos los buques, sin filtro por bandera). Hacé clic en un buque para ver su bandera.</p>
+    <div class="live">
+      <script>var width="100%";var height="420";var latitude="-38.5";var longitude="-60.5";var zoom="4";var names=false;</script>
+      <script src="https://www.vesselfinder.com/aismap.js"></script>
+    </div>
+  </section>
+
+  <section id="metodo">
+    <h2>Metodología y fuentes</h2>
+    <ol class="method">
+      <li><b>Foto horaria.</b> Cada hora un proceso automático escucha el AIS en tiempo real sobre cuatro zonas (Paraná y Río de la Plata, costa bonaerense, Patagonia norte y sur) y registra la última posición de cada buque. Mercante = tipos AIS 70 a 89 (carga y tanque).</li>
+      <li><b>Cabotaje costero.</b> Cada día se descargan las escalas en puerto de los últimos 60 días y se buscan buques extranjeros con dos escalas seguidas en puertos argentinos. Se verifica el historial mundial del buque para descartar escalas intermedias en el exterior y se conservan los tramos con extremo en la Patagonia. Es la misma regla del anexo 2 de la ponencia.</li>
+      <li><b>Lectura.</b> Estas cifras miden movimientos observados, no excepciones otorgadas. La serie oficial de waivers (art. 6° del Decreto-Ley 19.492/44, Res. ANPyN 41/2025) sólo puede obtenerse de la ANPyN por la Ley 27.275.</li>
+    </ol>
+    <p class="note">Datos: aisstream.io · Global Fishing Watch (globalfishingwatch.org) · VesselFinder · Anexos 1 y 2 de la ponencia «Logística fluvial y soberanía económica» (Universidad Nacional de Lanús, 2026). Mapa base © colaboradores de OpenStreetMap.</p>
+  </section>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+(() => {
+  const nf = new Intl.NumberFormat('es-AR');
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const $ = (id) => document.getElementById(id);
+  const PAISES = { ARG: 'Argentina', PAN: 'Panamá', LBR: 'Liberia', MHL: 'Islas Marshall', MLT: 'Malta', CYP: 'Chipre', BHS: 'Bahamas', ATG: 'Antigua y Barbuda', HKG: 'Hong Kong', SGP: 'Singapur', GRC: 'Grecia', PRT: 'Portugal', NOR: 'Noruega', NLD: 'Países Bajos', DEU: 'Alemania', DNK: 'Dinamarca', ESP: 'España', GBR: 'Reino Unido', ITA: 'Italia', BRA: 'Brasil', URY: 'Uruguay', PRY: 'Paraguay', CHL: 'Chile', BOL: 'Bolivia', CHN: 'China', JPN: 'Japón', KOR: 'Corea del Sur', USA: 'Estados Unidos', VCT: 'San Vicente y las Granadinas', BLZ: 'Belice', TUR: 'Turquía', RUS: 'Rusia', OTR: 'Otras', 'S/D': 'Sin dato' };
+  const pais = (c) => PAISES[c] || c;
+  const getJSON = (u) => fetch(u + '?t=' + Date.now()).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const getText = (u) => fetch(u + '?t=' + Date.now()).then((r) => (r.ok ? r.text() : null)).catch(() => null);
+  const hora = (iso) => new Date(iso).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'medium', timeStyle: 'short' });
+  const tiles = (map) => L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 12, attribution: '© OpenStreetMap' }).addTo(map);
+  const mkMap = (id) => { const m = L.map(id, { scrollWheelZoom: false }).setView([-39, -61], 4); tiles(m); return m; };
+  const empty = (el, txt) => { el.innerHTML = ''; const d = document.createElement('div'); d.className = 'empty'; d.textContent = txt; el.appendChild(d); };
+
+  // ---- foto horaria
+  getJSON('data/snapshot.json').then((s) => {
+    if (!s) { $('lede').textContent = 'Todavía no hay una foto del tráfico: se genera en la primera corrida automática.'; empty($('map-ahora'), 'Sin foto todavía.'); return; }
+    const t = s.totales;
+    $('stamp-foto').textContent = 'Foto del ' + hora(s.generado_utc) + ' (hora argentina)';
+    $('n-total').textContent = nf.format(t.buques_con_posicion);
+    $('n-merc').textContent = nf.format(t.mercantes);
+    $('n-arg').textContent = nf.format(t.mercantes_bandera_argentina);
+    $('n-ext').textContent = nf.format(t.mercantes_bandera_extranjera);
+    const lede = $('lede'); lede.textContent = '';
+    const share = t.mercantes ? Math.round(100 * t.mercantes_bandera_extranjera / t.mercantes) : 0;
+    lede.append('En la última foto, ');
+    const e1 = document.createElement('span'); e1.className = 'flag-ext'; e1.textContent = share + '%'; lede.append(e1);
+    lede.append(' de los buques mercantes detectados en aguas argentinas navegaba con bandera extranjera (');
+    const e2 = document.createElement('span'); e2.className = 'flag-arg'; e2.textContent = nf.format(t.mercantes_bandera_argentina) + ' argentinos'; lede.append(e2);
+    lede.append(' frente a ');
+    const e3 = document.createElement('span'); e3.className = 'flag-ext'; e3.textContent = nf.format(t.mercantes_bandera_extranjera) + ' extranjeros'; lede.append(e3);
+    lede.append(').');
+    const m = mkMap('map-ahora');
+    s.buques.forEach((b) => {
+      const merc = b.tipo === 'Carga' || b.tipo === 'Tanque';
+      const col = !merc ? css('--other') : b.bandera === 'ARG' ? css('--arg') : css('--ext');
+      const c = L.circleMarker([b.lat, b.lon], { radius: merc ? 5 : 3, color: col, fillColor: col, fillOpacity: merc ? 0.85 : 0.5, weight: 1 }).addTo(m);
+      const box = document.createElement('div');
+      const strong = document.createElement('b'); strong.textContent = b.nombre || 'Sin nombre'; box.append(strong, document.createElement('br'));
+      box.append('Bandera: ' + pais(b.bandera), document.createElement('br'), 'Tipo: ' + b.tipo, document.createElement('br'), 'MMSI: ' + b.mmsi);
+      if (b.destino) { box.append(document.createElement('br'), 'Destino declarado: ' + b.destino); }
+      c.bindPopup(box);
+    });
+    const pb = Object.entries(s.por_bandera).slice(0, 12);
+    const mx = pb.length ? pb[0][1] : 1;
+    pb.forEach(([code, n]) => {
+      const li = document.createElement('li');
+      const a = document.createElement('span'); a.textContent = pais(code);
+      const bar = document.createElement('div'); bar.className = 'b' + (code === 'ARG' ? ' arg' : ''); bar.style.width = (100 * n / mx) + '%';
+      const holder = document.createElement('div'); holder.appendChild(bar);
+      const v = document.createElement('span'); v.className = 'v'; v.textContent = nf.format(n);
+      li.append(a, holder, v); $('bars-bandera').appendChild(li);
+    });
+  });
+
+  // ---- historial horario
+  getText('data/historial.csv').then((txt) => {
+    const box = $('chart-horas').parentElement;
+    if (!txt) { empty(box, 'La serie horaria empieza con la primera corrida automática.'); return; }
+    const rows = txt.trim().split('\n').slice(1).map((l) => l.split(','));
+    new Chart($('chart-horas'), {
+      type: 'line',
+      data: {
+        labels: rows.map((r) => new Date(r[0]).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit' })),
+        datasets: [
+          { label: 'Mercantes de bandera extranjera', data: rows.map((r) => +r[4]), borderColor: css('--ext'), backgroundColor: css('--ext'), pointRadius: 0, borderWidth: 2, tension: 0 },
+          { label: 'Mercantes de bandera argentina', data: rows.map((r) => +r[3]), borderColor: css('--arg'), backgroundColor: css('--arg'), pointRadius: 0, borderWidth: 2, tension: 0 },
+        ],
+      },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: css('--ink') } } }, scales: { x: { ticks: { color: css('--muted'), maxTicksLimit: 10 }, grid: { color: css('--grid') } }, y: { beginAtZero: true, ticks: { color: css('--muted') }, grid: { color: css('--grid') } } } },
+    });
+  });
+
+  // ---- cabotaje reciente
+  getJSON('data/cabotaje_reciente.json').then((c) => {
+    if (!c) { empty($('map-cabotaje'), 'El cálculo diario de cabotaje todavía no corrió.'); return; }
+    $('stamp-gfw').textContent = 'Del ' + c.ventana.desde + ' al ' + c.ventana.hasta + ' · calculado el ' + hora(c.generado_utc);
+    $('c-buques').textContent = nf.format(c.totales.buques_extranjeros);
+    $('c-rec').textContent = nf.format(c.totales.buques_recurrentes_4_o_mas);
+    $('c-tramos').textContent = nf.format(c.totales.tramos_costeros);
+    const m = mkMap('map-cabotaje');
+    const mx = Math.max(1, ...c.rutas.map((r) => r.tramos));
+    c.rutas.filter((r) => r.lat_o !== null && r.lat_d !== null).forEach((r) => {
+      L.polyline([[r.lat_o, r.lon_o], [r.lat_d, r.lon_d]], { color: css('--ext'), weight: 1 + 7 * Math.sqrt(r.tramos / mx), opacity: 0.7 })
+        .addTo(m).bindTooltip(r.origen + ' → ' + r.destino + ': ' + r.tramos + ' tramos, ' + r.buques + ' buques');
+    });
+    const tb = $('tabla-cabotaje');
+    c.buques.forEach((b) => {
+      const tr = document.createElement('tr');
+      [b.nombre || 'Sin nombre', pais(b.bandera), b.mmsi, nf.format(b.tramos)].forEach((v, i) => { const td = document.createElement('td'); if (i === 3) td.className = 'num'; td.textContent = v; tr.appendChild(td); });
+      tb.appendChild(tr);
+    });
+    if (!c.buques.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 4; td.textContent = 'Sin buques extranjeros en la costa en la ventana.'; tr.appendChild(td); tb.appendChild(tr); }
+  });
+
+  // ---- serie larga
+  getJSON('data/serie_2012_2025.json').then((s) => {
+    if (!s) return;
+    new Chart($('chart-serie'), {
+      data: {
+        labels: s.map((r) => r.anio),
+        datasets: [
+          { type: 'bar', label: 'Flota de carga de bandera nacional', data: s.map((r) => r.flota_nacional), backgroundColor: css('--arg'), order: 3 },
+          { type: 'line', label: 'Extranjeros con tramos costeros', data: s.map((r) => r.buques_costeros), borderColor: css('--other'), backgroundColor: css('--other'), borderDash: [5, 4], borderWidth: 2, pointRadius: 2, tension: 0, order: 2 },
+          { type: 'line', label: 'Extranjeros con operación recurrente', data: s.map((r) => r.buques_recurrentes), borderColor: css('--ext'), backgroundColor: css('--ext'), borderWidth: 2.5, pointRadius: 3, tension: 0, order: 1 },
+        ],
+      },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: css('--ink') } } }, scales: { x: { ticks: { color: css('--muted') }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: css('--muted') }, grid: { color: css('--grid') } } } },
+    });
+  });
+})();
+</script>
+</body>
+</html>
