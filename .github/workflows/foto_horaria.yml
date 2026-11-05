@@ -15,7 +15,7 @@ concurrency:
 jobs:
   foto:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,7 +30,7 @@ jobs:
         run: |
           git config user.name "observatorio-bot"
           git config user.email "observatorio-bot@users.noreply.github.com"
-          git add data/snapshot.json data/historial.csv
+          git add data/snapshot.json data/historial.csv data/tipos_conocidos.json
           git diff --cached --quiet || git commit -m "Foto AIS $(date -u +%Y-%m-%dT%H:%MZ)"
           git pull --rebase
           git push

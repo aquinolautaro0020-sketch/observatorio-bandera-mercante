@@ -97,7 +97,8 @@ def main():
         sys.exit("Falta el secreto GFW_TOKEN.")
     s = sesion(token)
     hoy = datetime.now(timezone.utc).date()
-    ini, fin = hoy - timedelta(days=DIAS), hoy
+    fin = hoy - timedelta(days=3)          # GFW publica con ~72 h de demora
+    ini = fin - timedelta(days=DIAS)
     cuerpo = {"datasets": [DS], "startDate": ini.isoformat(), "endDate": fin.isoformat(), "geometry": POLIGONO}
     filtro = None
     for op in (["cargo", "bunker", "other"], ["CARGO", "BUNKER", "OTHER"]):
@@ -148,4 +149,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as e:
+        sys.exit(f"Global Fishing Watch devolvió un error: {e}. Si dice 401, revisá el secreto GFW_TOKEN (copiá el token con el botón de copiar).")

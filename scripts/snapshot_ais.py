@@ -17,7 +17,8 @@ from comun import bandera_por_mmsi, tipo_ais  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 URL = "wss://stream.aisstream.io/v0/stream"
-SEGUNDOS = int(os.environ.get("SEGUNDOS_ESCUCHA", "240"))
+SEGUNDOS = int(os.environ.get("SEGUNDOS_ESCUCHA", "540"))  # los datos de tipo llegan cada ~6 min
+TIPOS = RAIZ / "data" / "tipos_conocidos.json"
 # Cajas [[lat, lon], [lat, lon]] sobre aguas argentinas: Paraná y Río de la Plata, costa bonaerense, Patagonia norte y sur
 CAJAS = [
     [[-27.0, -61.5], [-35.2, -56.8]],
@@ -79,6 +80,21 @@ def procesar(msg, buques):
             b["hora_utc"] = meta.get("time_utc")
 
 
+def completar_tipos(buques):
+    """Usa y actualiza la memoria de tipos de buque (MMSI -> tipo) entre corridas."""
+    try:
+        conocidos = json.loads(TIPOS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        conocidos = {}
+    for mmsi, b in buques.items():
+        if b["tipo"] != "Sin dato":
+            conocidos[mmsi] = b["tipo"]
+        elif mmsi in conocidos:
+            b["tipo"] = conocidos[mmsi]
+    TIPOS.parent.mkdir(exist_ok=True)
+    TIPOS.write_text(json.dumps(conocidos, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+
 def resumir(buques, ahora):
     con_pos = [b for b in buques.values() if "lat" in b]
     mercantes = [b for b in con_pos if b["tipo"] in ("Carga", "Tanque")]
@@ -91,6 +107,7 @@ def resumir(buques, ahora):
         "generado_utc": ahora,
         "segundos_escucha": SEGUNDOS,
         "totales": {"buques_con_posicion": len(con_pos), "mercantes": len(mercantes),
+                    "sin_tipo_identificado": sum(1 for b in con_pos if b["tipo"] == "Sin dato"),
                     "mercantes_bandera_argentina": len(arg), "mercantes_bandera_extranjera": len(ext)},
         "por_bandera": dict(sorted(por_bandera.items(), key=lambda kv: -kv[1])),
         "buques": sorted(con_pos, key=lambda b: (b["tipo"] not in ("Carga", "Tanque"), b["bandera"] == "ARG")),
@@ -122,6 +139,7 @@ def main():
         sys.exit(f"No se pudo conectar con aisstream.io ({type(e).__name__}: {e}). Si se repite, revisá la clave o el estado del servicio.")
     if not buques:
         print("Aviso: aisstream no envió ningún buque en la ventana de escucha; se guarda una foto vacía.")
+    completar_tipos(buques)
     resumen = resumir(buques, ahora)
     guardar(resumen)
     print(json.dumps(resumen["totales"], ensure_ascii=False))
