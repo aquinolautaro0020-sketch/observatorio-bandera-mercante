@@ -1,5 +1,5 @@
 {
  "ok": false,
  "detalle": "TypeError: '>=' not supported between instances of 'str' and 'int'",
- "fecha_utc": "2026-11-11T17:28:14Z"
+ "fecha_utc": "2026-11-12T17:47:04Z"
 }
